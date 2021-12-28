@@ -1,0 +1,1088 @@
+<style>
+
+    body {
+
+    margin: 0;
+
+    height: 100vh;t
+
+    user-select: none;
+
+    -webkit-user-select: none;
+
+    position: fixed;
+
+}</style>
+
+<canvas id="cvs"></canvas>
+
+<script type="text/javascript">
+
+   "use strict";
+
+
+
+let ctx, 
+
+    lastTime, interval,
+
+    currentLevel, isPlaying,
+
+    W, H, fps,
+
+    stars = [], ghosts = [],
+
+    joystick, player,
+
+    timeStarted, timeEnded,
+
+    touch, splash;
+
+
+
+
+
+const util = {
+
+    random(min=0, max=1) {
+
+        return Math.random() * (max - min + 1) + min;
+
+    },
+
+
+
+    convert(value, type) {
+
+        return (type === null)? value * Math.PI / 180 : value * 180 / Math.PI;
+
+    },
+
+
+
+    drawCircle(x, y, radius, color) {
+
+        ctx.beginPath();
+
+        ctx.fillStyle = color;
+
+        ctx.arc(x, y, radius, 0, 2*Math.PI);
+
+        ctx.fill();
+
+    },
+
+
+
+    getDist(x1, y1, x2, y2) {
+
+        return {
+
+            diffX: x2 - x1,
+
+            diffY: y2 - y1,
+
+            dist: Math.hypot(x2 - x1, y2 - y1)
+
+        };
+
+    }
+
+}
+
+
+
+
+
+class Abstract {
+
+    constructor(x, y, vel) {
+
+        this.x = x;
+
+        this.y = y; 
+
+        this.vel = vel;
+
+        this.angle = 0;
+
+        this.isMoving = false;
+
+    }
+
+
+
+    move() {
+
+        if(this.isMoving) {
+
+            this.x += Math.cos(this.angle) * this.vel;
+
+            this.y += Math.sin(this.angle) * this.vel;
+
+        }
+
+    }
+
+}
+
+
+
+
+
+class Star extends Abstract {
+
+    constructor(x, y, vel) {
+
+        super(util.random(1, W),
+
+             util.random(1, H), 1);
+
+        this.originX = this.x;
+
+        this.originY = this.y;
+
+    }
+
+
+
+    update() {
+
+        util.drawCircle(this.x, this.y, 1, "lightgray");
+
+        this.move();
+
+        // reposition  when off-canvas
+
+        if(this.x < 0 || this.x > W - 20) this.x = this.originX;
+
+        else if(this.y < 0 || this.y > H - 20) this.y = this.originY;
+
+    }
+
+}
+
+
+
+
+
+class Player extends Abstract {
+
+    constructor(x, y) {
+
+        super(x, y, 7);
+
+        this.size = 10;
+
+        this.angle = 0;
+
+        this.isMoving = false;
+
+        this.score = 0;
+
+        this.lives = 10;
+
+        this.maze = [
+
+            [0, 2, 0, 0],
+
+            [1, 2, 0, 1],
+
+            [1, 1, 1, 1],
+
+            [1, 0, 0, 1]
+
+        ];
+
+        this.w = this.maze[0].length * this.size;
+
+        this.h = this.maze.length * this.size;
+
+        this.firingDelay = 0;
+
+        this.bullets = [];
+
+    }
+
+
+
+    draw() {
+
+        ctx.save();
+
+        ctx.translate(this.x + this.w * .5, this.y + this.h * .5);
+
+        ctx.rotate(this.angle + 90);
+
+        ctx.fillStyle = "teal";
+
+        for(let r=0; r < this.maze.length; r++) {
+
+            for(let c=0; c < this.maze[r].length; c++) {
+
+                let index = this.maze[r][c];
+
+                if(index === 1) {
+
+                    let x = -this.w * .5 + c * this.size;
+
+                    let y = -this.h * .5 + r * this.size;
+
+                    ctx.fillRect(x, y, this.size, this.size);
+
+                }
+
+                else if(index === 2) {
+
+                    let x = -this.w * .5 + (this.size - this.size * .2) + c * this.size;
+
+                    let y = -this.h * .5 + r * this.size;
+
+                    ctx.fillRect(x, y, this.size * .5, this.size);
+
+                }
+
+            }
+
+        }
+
+        ctx.restore();
+
+    }
+
+
+
+    fire() {
+
+        this.firingDelay++;
+
+        if(this.firingDelay >= 40) {
+
+            this.firingDelay = 0;
+
+            Bullet.createNew(this.x + this.w * .5, this.y + this.h * .5);
+
+        }
+
+
+
+        this.bullets.forEach(bullet => bullet.update());
+
+    }
+
+
+
+    checkCollision() {
+
+        // wall collision
+
+        if(this.x < 0) this.x = 0;
+
+        else if(this.x + this.w > W) this.x = W - this.w;
+
+
+
+        if(this.y < 0) this.y = 0;
+
+        else if(this.y + this.h > H) this.y = H - this.h;
+
+
+
+        // ghost collision
+
+        for(let ghost of ghosts) {
+
+            if(this.x + this.w > ghost.x && ghost.x + ghost.w > this.x &&
+
+                this.y + this.h > ghost.h && ghost.y + ghost.h > this.y) {
+
+                    ghosts.splice(ghosts.indexOf(ghost), 1);
+
+                    this.lives--;
+
+                    if(this.lives < 0) game.end();
+
+            }
+
+        }
+
+    }
+
+
+
+    update() {
+
+        this.fire();
+
+        this.draw();
+
+        this.move();
+
+        this.checkCollision();
+
+        //this.fire();
+
+    }
+
+}
+
+
+
+
+
+class Ghost {
+
+    constructor(x, y) {
+
+        this.x = x;
+
+        this.y = y;
+
+        
+
+        this.theta = 0;
+
+        this.vel = 2;
+
+        this.maze = [
+
+            [0,0,1,0,0],
+
+            [1,2,1,2,1,1],
+
+            [1,1,1,1,1,1],
+
+            [1,1,1,1,1,1],  
+
+            [0,1,0,0,1,0] 
+
+        ];
+
+        this.size = 5;
+
+        this.w = this.maze[1].length * this.size;
+
+        this.h = this.maze.length * this.size;
+
+        this.lives = this.w;
+
+        this.color = ["red", "yellow", "purple"][Math.floor(Math.random() * 3)];
+
+    }
+
+
+
+    draw() {
+
+        ctx.fillStyle = (this.lives >= 15)? "green":(this.lives >= 10 && this.lives <= 14)?"yellow":"red";
+
+        ctx.fillRect(this.x, this.y - 5, this.lives, 5);
+
+        for(let r=0; r < this.maze.length; r++) {
+
+            for(let c=0; c < this.maze[r].length; c++) {
+
+                let x = this.x + c * this.size;
+
+                let y = this.y + r * this.size;
+
+                if (this.maze[r][c] === 1) ctx.fillStyle = this.color;
+
+                else if (this.maze[r][c] === 2) ctx.fillStyle  = "white";
+
+                else if (this.maze[r][c] === 0) ctx.fillStyle  = "black";
+
+                ctx.fillRect(x, y, this.size, this.size);
+
+            }
+
+        }
+
+    }
+
+
+
+    moveTo(point2) {
+
+        let diffX = point2.x - this.x;
+
+        let diffY = point2.y - this.y;
+
+        this.theta = Math.atan2(diffY, diffX);
+
+        this.x += Math.cos(this.theta) * this.vel;
+
+        this.y += Math.sin(this.theta) * this.vel;
+
+    }
+
+
+
+    update() {
+
+        this.draw();
+
+        this.moveTo(player);
+
+    }
+
+
+
+    static createNew() {
+
+        let pos = [
+
+            {x: Math.random() * W, y: -200},
+
+            {x: Math.random() * W, y: H + 200},
+
+            {x: -200, y: Math.random() * H},
+
+            {x: W + 200, y: Math.random() * H}
+
+        ];
+
+        for(let i=0; i < 2; i++) {
+
+            let index = Math.floor(Math.random() * pos.length);
+
+            let x = pos[index].x;
+
+            let y = pos[index].y;
+
+            ghosts.push(new Ghost(x, y));
+
+        }
+
+    }
+
+}
+
+
+
+
+
+class Bullet extends Abstract {
+
+    constructor(x, y, vel, angle, color) {
+
+        super(x, y, vel);
+
+        this.originX = this.x;
+
+        this.originY = this.y;
+
+        this.angle = angle;
+
+        this.color = color;
+
+        this.w = 4;
+
+        this.h = 5;
+
+        this.isMoving = true;
+
+    }
+
+
+
+    draw() {
+
+        ctx.save();
+
+        ctx.translate(this.x + this.w * .5, this.y + this.h * .5);
+
+        ctx.rotate(this.angle + 90);
+
+        ctx.fillStyle = this.color;
+
+        ctx.fillRect(-this.w * .5, -this.h * .5, this.w, this.h);
+
+        ctx.restore();
+
+    }
+
+
+
+    checkCollision() {
+
+        let index = player.bullets.indexOf(this);
+
+        // offScreen check
+
+        if(this.x < 0 || this.x + this.w > W) 
+
+            player.bullets.splice(index, 1);
+
+        else if(this.y < 0 || this.y + this.h > H) 
+
+            player.bullets.splice(index, 1);
+
+        // bullet to ghost collision
+
+        for(let ghost of ghosts) {
+
+            if(this.x + this.w > ghost.x && ghost.x + ghost.w > this.x &&
+
+                this.y + this.h > ghost.h && ghost.y + ghost.h > this.y) {
+
+                    ghost.lives-= 5;
+
+                    player.bullets.splice(index, 1);
+
+                    if(ghost.lives < 0) {
+
+                        ghosts.splice(ghosts.indexOf(ghost), 1);
+
+                        player.score++;
+
+                    }
+
+                }
+
+        }   
+
+    }
+
+
+
+    move() {
+
+        this.vel += 3;
+
+        this.x = this.originX + Math.cos(
+
+        this.angle) * this.vel;
+
+        this.y = this.originY + Math.sin(
+
+        this.angle) * this.vel;
+
+    }
+
+
+
+    update() {
+
+        this.draw();
+
+        this.move();
+
+        this.checkCollision();
+
+    }
+
+    
+
+    static createNew(x,y) {
+
+        for(let i=0, a=0; i< 12; i++, a += 10) {
+
+            let ang = util.convert(a);
+
+            player.bullets.push(new Bullet(
+
+            x,y,12,ang,"red"
+
+       ));
+
+        }
+
+    }
+
+}
+
+
+
+
+
+class Text {
+
+    constructor(x, y) {
+
+        this.x = x;
+
+        this.y = y;
+
+    }
+
+
+
+    static fillText(text, x, y, font, color) {
+
+        ctx.textAlign = "center";
+
+        ctx.textBaseline = "middle";
+
+        ctx.fillStyle = color;
+
+        ctx.font = font;
+
+        ctx.fillText(text, x, y);
+
+    }
+
+}
+
+
+
+
+
+const update = {
+
+    main() {
+
+        if(isPlaying)
+
+            this.isPlaying();
+
+        else this.startScreen();
+
+    },
+
+
+
+    isPlaying() {
+
+        // update background stars
+
+        stars.forEach(star => star.update());
+
+
+
+        ghosts.forEach(ghost => ghost.update());
+
+        player.update();
+
+
+
+        ctx.fillStyle = "rgba(0, 0, 0, .5)";
+
+        ctx.fillRect(0, 0, W, 50);
+
+        Text.fillText(fps, W - 100, 25, "bold 15px Arial", "white");
+
+        Text.fillText("Level: " + parseInt(currentLevel + 1), 
+
+            25, 25, "bold 15px Arial", "white");
+
+        Text.fillText("Score: " + parseInt(player.score), 
+
+            100, 25, "bold 15px Arial", "white");
+
+        Text.fillText("Lives: " + parseInt(player.lives), 
+
+            190, 25, "bold 15px Arial", "white");
+
+
+
+        // increment level
+
+        currentLevel = player.score / 8;
+
+
+
+        util.drawCircle(joystick.x, joystick.y, joystick.outterRad, joystick.color[0]);
+
+        util.drawCircle(joystick.dx, joystick.dy, joystick.innerRad, joystick.color[1]);
+
+    },
+
+
+
+    startScreen() {
+
+        if(splash.counter >= 100)
+
+            splash.loaded = true;
+
+        if(splash.loaded) {
+
+            splash.counter = 0;
+
+            ctx.fillStyle = "#000000";
+
+            ctx.fillRect(0, 0, W, H);
+
+            stars.forEach(star => star.update());
+
+            ctx.save();
+
+            ctx.globalAlpha = Math.abs(Math.sin(Math.random()) * 1);
+
+            Text.fillText("Tap the screen to start", W/2, H/2, 
+
+            "bold 20px Arial", "lightgray");
+
+            ctx.restore();
+
+        } else {
+
+            splash.counter++;
+
+            ctx.fillStyle = "white";
+
+            ctx.fillRect(0, 0, W, H);
+
+            Text.fillText("Ghost Fighter", W/2, H/2, "bold 45px Arial", "#222");
+
+            Text.fillText("Rockson's game", (W/2) + 50, (H / 2) + 35, 
+
+                "bold 15px Arial", "red");
+
+        }
+
+    }
+
+}
+
+
+
+
+
+const game = {
+
+    fps() {
+
+        timeEnded = performance.now();
+
+        fps = "FPS: "+ Number(~~(1000 / (timeEnded - timeStarted)));
+
+        timeStarted = timeEnded;
+
+    },
+
+
+
+    animate(currentTime) {
+
+        ctx.clearRect(0, 0, W, H);
+
+        update.main();  
+
+        if(currentTime < lastTime) {
+
+            requestAnimationFrame(game.animate);
+
+            game.fps();
+
+            return;
+
+        } else {
+
+            lastTime = currentTime + interval - currentLevel;
+
+            if(isPlaying)Ghost.createNew();
+
+            requestAnimationFrame(game.animate);
+
+            game.fps();
+
+        }
+
+    },
+
+
+
+    start() {
+
+        isPlaying = true;
+
+        player.x = W/2;
+
+        player.y = H/2;
+
+        player.lives = 10;
+
+        player.score = 0;
+
+        ghosts = [];
+
+        player.bullets =[];
+
+    },
+
+
+
+    end() {
+
+        isPlaying = false;
+
+    }
+
+}
+
+
+
+const eventHandler = () => {
+
+    ctx.canvas.addEventListener("click", () => {
+
+        if(splash.loaded && !isPlaying) game.start();
+
+    });
+
+
+
+    ctx.canvas.addEventListener("touchmove", e => {
+
+        if(util.getDist(e.touches[0].pageX, e.touches[0].pageY, 
+
+            joystick.x, joystick.y).dist < joystick.outterRad) {
+
+                let [x1, y1] = [e.touches[0].pageX, e.touches[0].pageY];
+
+                joystick.dx = x1;
+
+                joystick.dy = y1;
+
+                // get stretched angle
+
+                let angle = Math.atan2(y1 - joystick.y, x1 - joystick.x);
+
+                // move player
+
+                player.isMoving = true;
+
+                player.angle = angle;
+
+
+
+                stars.forEach(star => {
+
+                    star.isMoving = true;
+
+                    star.angle = angle;
+
+                    star.move();
+
+                });
+
+            }
+
+    });
+
+
+
+    ctx.canvas.addEventListener("touchend", () => {
+
+        joystick.dx = joystick.x;
+
+        joystick.dy = joystick.y;
+
+        player.isMoving = false;
+
+        stars.forEach(star => {
+
+            star.isMoving = false;
+
+            //star.angle = angle;
+
+            star.move();
+
+        });
+
+    });
+
+}
+
+
+
+const init = () => {
+
+    ctx = document.querySelector("#cvs").getContext("2d");
+
+    W = ctx.canvas.width = innerWidth;
+
+    H = ctx.canvas.height = innerHeight;
+
+    ctx.canvas.style.backgroundColor = "#000000";
+
+
+
+    for(let star = 0; star < 100; star++) stars.push(new Star());
+
+
+
+    joystick = {
+
+        x: 50,
+
+        y: H - 50,
+
+        dx: 50,
+
+        dy: H - 50,
+
+        outterRad: 50,
+
+        innerRad: 15,
+
+        color: ["rgba(150, 0, 0, .5)", "dimgray"]
+
+    };
+
+
+
+    player = new Player(W/2, H/2);
+
+
+
+    currentLevel = 0;
+
+    lastTime = 0;
+
+    interval = 2000;
+
+    isPlaying = false;
+
+
+
+    splash = {loaded: false, counter: 0};
+
+
+
+    requestAnimationFrame(game.animate);
+
+    eventHandler();
+
+}
+
+
+
+addEventListener("load", init);
+
+</script>
+
+<!DOCTYPE html>
+
+<html>
+
+    <head>
+
+        <title>Page Title</title>
+
+         <script src="https://cdn.jsdelivr.net/npm/sweetalert2@9"></script>
+
+    </head>
+
+    <body>
+
+        <div class="moon"></div>
+
+        <div class="maa"></div>
+
+        <div class="head"></div>
+
+        <div class="bdy"></div>
+
+        <div class="bdy2"></div>
+
+        <div class="pch"></div>
+
+        
+
+         <div class="str sr1"></div>
+
+
+        <div class="str sr2"></div>
+
+
+        <div class="str sr3"></div>
+
+
+        <div class="str sr4"></div>
+
+
+        <div class="str sr5"></div>
+
+
+        <div class="str sr6"></div>
+
+
+        <div class="str sr7"></div>
+
+
+         <div class="str sr8"></div>
+
+
+        <div class="str sr9"></div>
+
+
+        <div class="str sr10"></div>
+
+
+        <div class="str sr11"></div>
+
+
+        <div class="str sr12"></div>
+
+
+        <div class="str sr13"></div>
+
+
+        <div class="str sr14"></div>
+
+
+        
+
+        
+
+        
+
+            <div class="tree2"></div>
+
+        
+
+        <div class="star"></div>
+
+        
+
+     <audio controls style="display:none;" loop id="a">
+
+     <source id="audio-source"
+
+     src="https://2u039f-a.akamaihd.net/downloads/ringtones/files/mp3/letmeloveyoudjsnakeftjustinbieberdjjohalcomringtoneringtone-38476.mp3" type="audio/mpeg"> </audio>
+
+     
+
+        
+
+       <script>
+
+            Swal.fire(
+
+               'Its night animation??\n im just try something??\n hope u like it \n '
+
+            )
+
+            
+
+         </script>
+
+         
+
+    </body>
+
+</html>
+
+<script>
+
+    
+
+
+
+
+
+window.addEventListener("mouseover",play);
+
+window.addEventListener("click",play);
+
+function play(){ document.getElementById("a").play();
+
+}
+
+
+
+</script>
+
